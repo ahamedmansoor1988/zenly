@@ -746,6 +746,9 @@ export function ZenlyApp() {
   const [planBuilt, setPlanBuilt] = useState(false);
   const [planBuilding, setPlanBuilding] = useState(false);
   const [plan, setPlan] = useState<{ headline: string | null; items: typeof planItems }>({ headline: null, items: planItems });
+  const [nightReview, setNightReview] = useState<{ score: number; insights: string[]; windDown: string } | null>(null);
+  const [nightReviewLoading, setNightReviewLoading] = useState(false);
+  const nightReviewFetchedRef = useRef(false);
   const [gmailState, setGmailState] = useState<ProviderState>("disconnected");
   const [slackState, setSlackState] = useState<ProviderState>("disconnected");
   const [modeIndex, setModeIndex] = useState(0);
@@ -839,6 +842,14 @@ export function ZenlyApp() {
     });
   }, [inputStats.activeSeconds, notificationsEnabled, workload.headline, workload.message, workload.state]);
 
+  useEffect(() => {
+    if (activeTab !== "night") return;
+    if (authStatus !== "signed_in") return;
+    if (nightReviewFetchedRef.current) return;
+    nightReviewFetchedRef.current = true;
+    void fetchNightReview();
+  }, [activeTab, authStatus]);
+
   function chooseMode(index: number) {
     setModeIndex(index);
     setSecondsLeft(focusModes[index].minutes * 60);
@@ -884,6 +895,28 @@ export function ZenlyApp() {
     }
     setPlanBuilding(false);
     setPlanBuilt(true);
+  }
+
+  async function fetchNightReview() {
+    if (authStatus !== "signed_in" || nightReviewLoading) return;
+    setNightReviewLoading(true);
+    try {
+      const response = await fetch("/api/zenly/night-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          localTime: new Date().toTimeString().slice(0, 5),
+          focus: { sessions, minutes: focusMinutes, breaks },
+        }),
+      });
+      const json = response.ok ? await response.json() : null;
+      if (json?.review) {
+        setNightReview(json.review);
+      }
+    } catch {
+      // keep the static fallback below
+    }
+    setNightReviewLoading(false);
   }
 
   function simulateConnect(provider: "gmail" | "slack") {
@@ -1096,20 +1129,50 @@ export function ZenlyApp() {
 
                 {activeTab === "night" && (
                   <GlowCard className="min-h-[430px]">
-                    <div className="grid gap-4 md:grid-cols-[230px_minmax(0,1fr)]">
-                      <div className="bg-[linear-gradient(180deg,#242739,#ffb66f_82%)] p-6 text-white shadow-[0_0_60px_rgba(255,182,111,0.2)]">
-                        <p className="font-mono text-[12px] uppercase tracking-[0.22em] text-white/48">Night score</p>
-                        <p className="mt-7 text-[66px] font-light leading-none">75<span className="text-[26px]">%</span></p>
+                    {authStatus !== "signed_in" ? (
+                      <div className="grid min-h-[380px] place-items-center text-center">
+                        <div className="max-w-xs">
+                          <p className="text-[15px] font-semibold text-white">See tonight&apos;s real review</p>
+                          <p className="mt-2 text-[13px] leading-5 text-white/50">
+                            <a href="/login?redirect=%2F" className="text-white/82 underline underline-offset-2 hover:text-white">
+                              Sign in
+                            </a>{" "}
+                            to get an honest look at how today actually went, built from your workload history.
+                          </p>
+                        </div>
                       </div>
-                      <div className="space-y-3">
-                        {["Best work landed before noon.", "Tomorrow gets two protected focus blocks.", "Rain is ready for wind down."].map((insight) => (
-                          <div key={insight} className="rounded-[22px] bg-black/22 p-4 text-[14px] font-medium text-white ring-1 ring-white/8">{insight}</div>
-                        ))}
-                        <button onClick={() => { setSound("Rain"); setActiveTab("sounds"); }} className="w-full rounded-full bg-white px-5 py-3 text-left text-[13px] font-semibold text-[#11131b] shadow-[0_0_34px_rgba(255,255,255,0.2)]">
-                          Wind down with Rain
-                        </button>
+                    ) : (
+                      <div className="grid gap-4 md:grid-cols-[230px_minmax(0,1fr)]">
+                        <div className="bg-[linear-gradient(180deg,#242739,#ffb66f_82%)] p-6 text-white shadow-[0_0_60px_rgba(255,182,111,0.2)]">
+                          <p className="font-mono text-[12px] uppercase tracking-[0.22em] text-white/48">Night score</p>
+                          <p className="mt-7 text-[66px] font-light leading-none">
+                            {nightReviewLoading ? "—" : nightReview?.score ?? "—"}
+                            <span className="text-[26px]">%</span>
+                          </p>
+                        </div>
+                        <div className="space-y-3">
+                          {nightReviewLoading ? (
+                            <div className="rounded-[22px] bg-black/22 p-4 text-[14px] font-medium text-white/50 ring-1 ring-white/8">
+                              Reading today&apos;s workload history…
+                            </div>
+                          ) : nightReview ? (
+                            nightReview.insights.map((insight) => (
+                              <div key={insight} className="rounded-[22px] bg-black/22 p-4 text-[14px] font-medium text-white ring-1 ring-white/8">{insight}</div>
+                            ))
+                          ) : (
+                            <button
+                              onClick={() => void fetchNightReview()}
+                              className="w-full rounded-[22px] bg-black/22 p-4 text-left text-[14px] font-medium text-white/68 ring-1 ring-white/8"
+                            >
+                              Generate tonight&apos;s review
+                            </button>
+                          )}
+                          <button onClick={() => { setSound("Rain"); setActiveTab("sounds"); }} className="w-full rounded-full bg-white px-5 py-3 text-left text-[13px] font-semibold text-[#11131b] shadow-[0_0_34px_rgba(255,255,255,0.2)]">
+                            {nightReview?.windDown ?? "Wind down with Rain"}
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </GlowCard>
                 )}
               </div>
