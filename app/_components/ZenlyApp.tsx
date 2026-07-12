@@ -9,11 +9,11 @@ import {
   Headphones,
   HeartPulse,
   Home,
+  LayoutGrid,
   Leaf,
   Mail,
   MessageSquareText,
   Moon,
-  Plus,
   RotateCcw,
   Sparkles,
   Timer,
@@ -761,6 +761,7 @@ export function ZenlyApp() {
   const [volume, setVolume] = useState(58);
   const { stats: inputStats, reset: resetInputStats } = useInputActivity();
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [defaultBaseId, setDefaultBaseId] = useState<string | null>(null);
   const lastWorkloadAlert = useRef("");
 
   const activeMode = focusModes[modeIndex];
@@ -841,6 +842,48 @@ export function ZenlyApp() {
       silent: true,
     });
   }, [inputStats.activeSeconds, notificationsEnabled, workload.headline, workload.message, workload.state]);
+
+  useEffect(() => {
+    if (authStatus !== "signed_in") {
+      setDefaultBaseId(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/zenly/bases")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((json) => {
+        if (cancelled) return;
+        const firstBase = json?.bases?.[0];
+        if (firstBase?.id) setDefaultBaseId(firstBase.id);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatus]);
+
+  const previousAutomationState = useRef(workload.state);
+  useEffect(() => {
+    const entered = workload.state;
+    if (previousAutomationState.current === entered) return;
+    previousAutomationState.current = entered;
+    if (authStatus !== "signed_in" || !defaultBaseId) return;
+
+    fetch("/api/zenly/automations/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ baseId: defaultBaseId, state: entered }),
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((json) => {
+        if (!Array.isArray(json?.notifications)) return;
+        if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+        for (const message of json.notifications as string[]) {
+          new Notification("Zenly automation", { body: message, silent: true });
+        }
+      })
+      .catch(() => {});
+  }, [authStatus, defaultBaseId, workload.state]);
 
   useEffect(() => {
     if (activeTab !== "night") return;
@@ -971,9 +1014,14 @@ export function ZenlyApp() {
                 );
               })}
             </nav>
-            <button className="flex h-14 w-14 items-center justify-center rounded-[22px] bg-white text-[#11131b] shadow-[0_0_30px_rgba(255,255,255,0.22)]">
-              <Plus size={20} />
-            </button>
+            <a
+              href="/base"
+              title="Base — tables & automations"
+              aria-label="Base — tables & automations"
+              className="flex h-14 w-14 items-center justify-center rounded-[22px] bg-white text-[#11131b] shadow-[0_0_30px_rgba(255,255,255,0.22)]"
+            >
+              <LayoutGrid size={20} />
+            </a>
           </aside>
 
           <section className="relative overflow-hidden rounded-[42px] border border-white/10 bg-[linear-gradient(145deg,rgba(121,237,170,0.18),rgba(189,167,255,0.19)_44%,rgba(255,182,111,0.13)_76%,rgba(255,255,255,0.06)_100%)] p-5 shadow-[0_36px_130px_rgba(0,0,0,0.42),0_0_90px_rgba(189,167,255,0.12)] sm:p-7">

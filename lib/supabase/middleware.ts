@@ -45,7 +45,9 @@ export async function updateSession(request: NextRequest) {
 
   if (!user && !isAuthPage && !isPublicPage && !isApiRoute) {
     const url = request.nextUrl.clone();
+    const redirectTo = url.pathname + url.search;
     url.pathname = "/login";
+    url.search = `?redirect=${encodeURIComponent(redirectTo)}`;
     return NextResponse.redirect(url);
   }
 
