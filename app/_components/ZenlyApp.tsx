@@ -15,6 +15,7 @@ import {
   MessageSquareText,
   Moon,
   RotateCcw,
+  Settings,
   Sparkles,
   Timer,
   Waves,
@@ -1014,14 +1015,24 @@ export function ZenlyApp() {
                 );
               })}
             </nav>
-            <a
-              href="/base"
-              title="Base — tables & automations"
-              aria-label="Base — tables & automations"
-              className="flex h-14 w-14 items-center justify-center rounded-[22px] bg-white text-[#11131b] shadow-[0_0_30px_rgba(255,255,255,0.22)]"
-            >
-              <LayoutGrid size={20} />
-            </a>
+            <div className="flex flex-col gap-2">
+              <a
+                href="/settings"
+                title="Settings"
+                aria-label="Settings"
+                className="flex h-14 w-14 items-center justify-center rounded-[22px] text-white/42 transition hover:text-white"
+              >
+                <Settings size={19} />
+              </a>
+              <a
+                href="/base"
+                title="Base — tables & automations"
+                aria-label="Base — tables & automations"
+                className="flex h-14 w-14 items-center justify-center rounded-[22px] bg-white text-[#11131b] shadow-[0_0_30px_rgba(255,255,255,0.22)]"
+              >
+                <LayoutGrid size={20} />
+              </a>
+            </div>
           </aside>
 
           <section className="relative overflow-hidden rounded-[42px] border border-white/10 bg-[linear-gradient(145deg,rgba(121,237,170,0.18),rgba(189,167,255,0.19)_44%,rgba(255,182,111,0.13)_76%,rgba(255,255,255,0.06)_100%)] p-5 shadow-[0_36px_130px_rgba(0,0,0,0.42),0_0_90px_rgba(189,167,255,0.12)] sm:p-7">
@@ -1381,6 +1392,12 @@ export function ZenlyApp() {
                   </button>
                 );
               })}
+              <a href="/base" aria-label="Base" className="flex min-h-11 flex-1 items-center justify-center rounded-full px-3 py-2 text-white/48">
+                <LayoutGrid size={17} />
+              </a>
+              <a href="/settings" aria-label="Settings" className="flex min-h-11 flex-1 items-center justify-center rounded-full px-3 py-2 text-white/48">
+                <Settings size={17} />
+              </a>
             </nav>
 
             <GlowCard className="hidden lg:block">

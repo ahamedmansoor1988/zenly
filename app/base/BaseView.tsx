@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, ChevronLeft, Leaf, ListChecks, Plus, Table as TableIcon, Trash2 } from "lucide-react";
+import { Bell, ChevronLeft, Leaf, ListChecks, Plus, Settings, Table as TableIcon, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 
@@ -248,6 +248,9 @@ export function BaseView() {
               <p className="text-[12px] text-white/42">{activeBase?.description}</p>
             </div>
           </div>
+          <a href="/settings" className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-white/68 ring-1 ring-white/10" title="Settings">
+            <Settings size={17} />
+          </a>
         </header>
 
         <div className="mt-4 grid flex-1 gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">

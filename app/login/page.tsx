@@ -87,7 +87,10 @@ export default function LoginPage() {
               </button>
 
               <p className="mt-6 text-center text-[11px] leading-4 text-white/35">
-                By continuing you agree to our Terms &amp; Privacy Policy.
+                By continuing you agree to our{" "}
+                <a href="/terms" className="underline underline-offset-2 hover:text-white/60">Terms</a>
+                {" & "}
+                <a href="/privacy" className="underline underline-offset-2 hover:text-white/60">Privacy Policy</a>
               </p>
             </div>
           </div>
