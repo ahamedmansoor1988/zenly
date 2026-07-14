@@ -1,8 +1,8 @@
 import { ZenlyApp } from "./_components/ZenlyApp";
 
 export const metadata = {
-  title: "Zenly - Wellness Companion",
-  description: "A calm wellness companion for planning, focus, nudges, sounds, and night review.",
+  title: "Zenly - Continuous Work Context",
+  description: "An AI operating system that helps knowledge workers resume work with context.",
 };
 
 export default function HomePage() {

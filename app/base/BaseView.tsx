@@ -222,8 +222,8 @@ export function BaseView() {
     return (
       <main className="grid min-h-screen place-items-center bg-[#050609] px-6 text-center text-white">
         <div className="max-w-sm">
-          <p className="text-[20px] font-semibold">Sign in to open your Base</p>
-          <p className="mt-2 text-[14px] leading-5 text-white/50">Your wellness data and automations live here, tied to your account.</p>
+          <p className="text-[20px] font-semibold">Sign in to open Memory</p>
+          <p className="mt-2 text-[14px] leading-5 text-white/50">Your work graph, context tables, and approval-based automations live here.</p>
           <a href="/login?redirect=%2Fbase" className="mt-6 inline-block rounded-full bg-white px-5 py-3 text-[13px] font-semibold text-[#11131b] shadow-[0_0_34px_rgba(255,255,255,0.2)]">
             Sign in
           </a>
@@ -244,7 +244,7 @@ export function BaseView() {
               <Leaf size={16} />
             </span>
             <div>
-              <p className="text-[15px] font-semibold text-white">{activeBase?.name ?? "Base"}</p>
+              <p className="text-[15px] font-semibold text-white">{activeBase?.name ?? "Memory"}</p>
               <p className="text-[12px] text-white/42">{activeBase?.description}</p>
             </div>
           </div>

@@ -19,16 +19,16 @@ export default function PrivacyPage() {
             <p className="mt-2">
               With your permission, Zenly reads: Gmail unread/important/urgent counts (never message content),
               Slack unread message and channel counts (never message content), and in-app keyboard/mouse/trackpad
-              activity while Zenly is open. We also store the workload scores this produces and any notes you add
-              yourself in your Base.
+              activity while Zenly is open. We also store the context scores this produces and any notes you add
+              yourself in Memory.
             </p>
           </section>
           <section>
             <h2 className="text-[16px] font-semibold text-white">How it&apos;s used</h2>
             <p className="mt-2">
-              Signals are used only to compute your workload state and to generate your daily plan and night
-              review. Recent workload history may be sent to our AI provider (Groq) to write these in natural
-              language — only aggregate scores and counts are sent, never your raw messages.
+              Signals are used only to compute your context state and generate resume-work guidance, plans, and
+              reviews. Recent aggregate history may be sent to our AI provider (Groq) to write these in natural
+              language. Only aggregate scores and counts are sent, never your raw messages.
             </p>
           </section>
           <section>
@@ -42,8 +42,8 @@ export default function PrivacyPage() {
             <h2 className="text-[16px] font-semibold text-white">Your control</h2>
             <p className="mt-2">
               You can disconnect Gmail or Slack at any time from Settings, which deletes the stored connection and
-              stops further access immediately. You can delete individual rows and tables you created in your
-              Base at any time.
+              stops further access immediately. You can delete individual rows and tables you created in Memory
+              at any time.
             </p>
           </section>
           <section>

@@ -1,11 +1,11 @@
 "use client";
-import { Leaf, HeartPulse, Timer, Waves } from "lucide-react";
+import { Brain, Database, Leaf, ShieldCheck, UserRoundCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 const features = [
-  { icon: HeartPulse, title: "Overload radar", desc: "Gmail, Slack, and activity signals become one gentle workload score." },
-  { icon: Timer, title: "Protected focus", desc: "Quiet focus blocks and soft nudges before tension builds." },
-  { icon: Waves, title: "Soft landings", desc: "Wind-down sounds and a calm review to close the day." },
+  { icon: Brain, title: "Context before chat", desc: "Zenly rebuilds your work state before asking you to prompt it." },
+  { icon: UserRoundCheck, title: "Waiting-on-you radar", desc: "Gmail, Slack, and activity signals become one ranked context queue." },
+  { icon: Database, title: "Professional memory", desc: "Decisions, commitments, and next steps live in your work graph." },
 ];
 
 export default function LoginPage() {
@@ -27,6 +27,7 @@ export default function LoginPage() {
         <div className="absolute left-[-18%] top-[-24%] h-[620px] w-[620px] rounded-full bg-[#79edaa]/25 blur-[140px]" />
         <div className="absolute right-[-14%] top-[-6%] h-[620px] w-[620px] rounded-full bg-[#bda7ff]/28 blur-[140px]" />
         <div className="absolute bottom-[-28%] left-[30%] h-[660px] w-[660px] rounded-full bg-[#ffb66f]/18 blur-[150px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(255,255,255,0.08),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(0,0,0,0.2))]" />
       </div>
 
       <div className="relative mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6 py-12">
@@ -38,11 +39,11 @@ export default function LoginPage() {
               </span>
               <span className="text-[26px] font-semibold tracking-tight">Zenly</span>
             </div>
-            <h1 className="max-w-md text-[40px] font-semibold leading-[1.08]">
-              A calmer shape for your workday.
+            <h1 className="max-w-md text-[44px] font-semibold leading-[1.04] tracking-[-0.02em] text-white">
+              Know exactly where work stands.
             </h1>
             <p className="mt-4 max-w-md text-[15px] leading-6 text-white/60">
-              Zenly watches the pressure building in your inbox, your Slack, and your hands on the keyboard — and steps in gently before it spills over.
+              Zenly connects your professional signals so every return to work starts with what changed, who is waiting, and what should happen next.
             </p>
             <div className="mt-10 space-y-5">
               {features.map(({ icon: Icon, title, desc }) => (
@@ -70,7 +71,7 @@ export default function LoginPage() {
 
               <h2 className="text-[26px] font-semibold">Welcome back</h2>
               <p className="mt-2 text-[14px] leading-5 text-white/55">
-                Sign in to save your workload history and let Zenly plan a softer day.
+                Sign in to connect sources, save professional memory, and resume work with context.
               </p>
 
               <button
@@ -85,6 +86,11 @@ export default function LoginPage() {
                 </svg>
                 Continue with Google
               </button>
+
+              <div className="mt-5 flex items-center justify-center gap-2 rounded-full bg-white/10 px-3 py-2 text-[12px] font-medium text-white/58 ring-1 ring-white/10">
+                <ShieldCheck size={14} />
+                Recommend before execute. Approval stays yours.
+              </div>
 
               <p className="mt-6 text-center text-[11px] leading-4 text-white/35">
                 By continuing you agree to our{" "}

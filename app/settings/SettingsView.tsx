@@ -91,7 +91,7 @@ export function SettingsView() {
 
         <div className="mt-6 space-y-4">
           <section className="rounded-[24px] border border-white/10 bg-white/[0.06] p-4">
-            <p className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/38">Connected accounts</p>
+            <p className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/38">Connected context sources</p>
 
             <AccountRow
               icon={Mail}

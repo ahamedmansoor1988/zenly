@@ -17,8 +17,8 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Loupe",
-  description: "AI agents for designers",
+  title: "Zenly",
+  description: "Continuous work context for knowledge workers",
 };
 
 export default function RootLayout({
@@ -34,4 +34,3 @@ export default function RootLayout({
     </html>
   );
 }
-

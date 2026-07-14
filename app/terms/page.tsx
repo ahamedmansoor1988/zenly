@@ -17,9 +17,9 @@ export default function TermsPage() {
           <section>
             <h2 className="text-[16px] font-semibold text-white">What Zenly is</h2>
             <p className="mt-2">
-              Zenly is a personal wellness companion. It reads signals you choose to connect — Gmail, Slack, and
-              in-app activity — to estimate your workload and suggest gentle interventions. It is not a medical
-              device and does not provide medical or mental health advice.
+              Zenly is a professional context system. It reads signals you choose to connect, including Gmail,
+              Slack, and in-app activity, to help you understand what changed, who is waiting, and what should
+              happen next. It is not a medical device and does not provide medical or mental health advice.
             </p>
           </section>
           <section>
@@ -32,17 +32,17 @@ export default function TermsPage() {
           <section>
             <h2 className="text-[16px] font-semibold text-white">Automations</h2>
             <p className="mt-2">
-              You can create automations that react to your workload state — for example, sending a browser
+              You can create automations that react to your context state, for example sending a browser
               notification or logging a note. You&apos;re in control of what automations exist and can disable or
-              delete them at any time.
+              delete them at any time. Zenly should recommend before it executes external actions.
             </p>
           </section>
           <section>
             <h2 className="text-[16px] font-semibold text-white">No warranty</h2>
             <p className="mt-2">
-              Zenly is provided as-is, without warranty of any kind. Workload scores and AI-generated plans and
-              reviews are estimates meant to be gently informative, not precise or authoritative measurements of
-              your wellbeing.
+              Zenly is provided as-is, without warranty of any kind. Context scores and AI-generated plans and
+              reviews are estimates meant to be informative, not precise or authoritative measurements of your
+              work or wellbeing.
             </p>
           </section>
           <section>

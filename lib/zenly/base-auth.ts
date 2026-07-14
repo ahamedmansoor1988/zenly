@@ -12,7 +12,7 @@ export async function requireUser() {
 const DEFAULT_FIELDS: Record<string, Array<{ name: string; type: string; options?: Record<string, unknown> }>> = {
   reflections: [
     { name: "Note", type: "long_text" },
-    { name: "Mood", type: "select", options: { choices: [{ label: "Calm" }, { label: "Focused" }, { label: "Stretched" }, { label: "Drained" }] } },
+    { name: "State", type: "select", options: { choices: [{ label: "Decision" }, { label: "Commitment" }, { label: "Blocked" }, { label: "Follow-up" }] } },
     { name: "Date", type: "date" },
   ],
 };
@@ -23,7 +23,7 @@ export async function ensureDefaultBase(supabase: Awaited<ReturnType<typeof crea
 
   const { data: base, error: baseError } = await supabase
     .from("zenly_bases")
-    .insert({ user_id: userId, name: "Wellness", description: "Your workload history and wind-down reflections.", icon: "leaf" })
+    .insert({ user_id: userId, name: "Memory", description: "Your professional context graph and work history.", icon: "brain" })
     .select("id")
     .single();
   if (baseError || !base) return;
@@ -37,7 +37,7 @@ export async function ensureDefaultBase(supabase: Awaited<ReturnType<typeof crea
 
   const { data: reflectionsTable } = await supabase
     .from("zenly_tables")
-    .insert({ base_id: base.id, user_id: userId, name: "Reflections", icon: "notebook", source: "custom", position: 1 })
+    .insert({ base_id: base.id, user_id: userId, name: "Commitments", icon: "notebook", source: "custom", position: 1 })
     .select("id")
     .single();
 

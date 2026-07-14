@@ -2,31 +2,38 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  CirclePause,
-  CirclePlay,
-  Droplets,
-  Eye,
-  Headphones,
-  HeartPulse,
-  Home,
-  LayoutGrid,
+  ArrowRight,
+  Bell,
+  Brain,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  Database,
+  FileText,
+  GitPullRequest,
+  History,
   Leaf,
   Mail,
   MessageSquareText,
-  Moon,
-  RotateCcw,
+  RefreshCw,
+  Search,
   Settings,
+  ShieldCheck,
   Sparkles,
-  Timer,
-  Waves,
+  Target,
+  UserRoundCheck,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 
-type TabId = "morning" | "focus" | "nudges" | "sounds" | "night";
+type AuthStatus = "loading" | "signed_in" | "signed_out";
 type ProviderState = "connected" | "syncing" | "disconnected";
+type ProviderId = "gmail" | "slack";
 type WorkloadState = "calm" | "focused" | "busy" | "overloaded" | "after_hours";
+type SyncStatus = "idle" | "saving" | "saved" | "signed_out" | "error";
+
 type InputActivityStats = {
   activeSeconds: number;
   keyPresses: number;
@@ -37,6 +44,7 @@ type InputActivityStats = {
   trackpadGestures: number;
   lastInput: "keyboard" | "mouse" | "trackpad" | "none";
 };
+
 type CommunicationSignals = {
   gmailUnread: number;
   gmailImportant: number;
@@ -45,6 +53,7 @@ type CommunicationSignals = {
   slackMentions: number;
   slackPriorityChannels: number;
 };
+
 type WorkloadReport = {
   communicationLoad: number;
   activityLoad: number;
@@ -56,60 +65,27 @@ type WorkloadReport = {
   message: string;
 };
 
-const tabs = [
-  { id: "morning" as const, label: "Morning", icon: Home },
-  { id: "focus" as const, label: "Focus", icon: Timer },
-  { id: "nudges" as const, label: "Nudges", icon: Leaf },
-  { id: "sounds" as const, label: "Sounds", icon: Waves },
-  { id: "night" as const, label: "Night", icon: HeartPulse },
-];
+type ProviderAccount = {
+  state: ProviderState;
+  configured: boolean;
+  signals: Record<string, number> | null;
+  displayName: string | null;
+};
 
-const focusModes = [
-  { label: "Focus", minutes: 25, color: "#bda7ff", glow: "rgba(189,167,255,0.72)" },
-  { label: "Break", minutes: 5, color: "#82d9ff", glow: "rgba(130,217,255,0.68)" },
-  { label: "Long", minutes: 15, color: "#ffb66f", glow: "rgba(255,182,111,0.7)" },
-];
+type SnapshotRow = {
+  id: string;
+  captured_at: string;
+  overload_score: number;
+  state: WorkloadState;
+};
 
-const planItems = [
-  { time: "09:15", title: "Clear urgent signals", desc: "Review the highest-signal Gmail and Slack items." },
-  { time: "10:00", title: "Protected focus", desc: "Start one quiet 25 minute block before context switching." },
-  { time: "11:30", title: "Body reset", desc: "Stretch, hydrate, and rest your eyes." },
-  { time: "17:40", title: "Soft close", desc: "Review the day and choose a wind-down sound." },
-];
-
-const sounds = [
-  { name: "Lo-fi", tone: "Focus", glow: "from-[#bda7ff] to-[#79edaa]" },
-  { name: "Binaural", tone: "Deep", glow: "from-[#82d9ff] to-[#d6a7ff]" },
-  { name: "Cafe", tone: "Warm", glow: "from-[#ffb66f] to-[#ffe28f]" },
-  { name: "Rain", tone: "Night", glow: "from-[#77d2ff] to-[#9ff0bf]" },
-];
-
-const tabCopy = {
-  morning: {
-    label: "Morning",
-    title: "A clear start for a full day.",
-    desc: "Connect your inbox and workspace, then turn the noisy parts of the morning into a calm plan.",
-  },
-  focus: {
-    label: "Focus",
-    title: "Let the next block be simple.",
-    desc: "Pick a mode, start the timer, and keep the rest of the interface quiet.",
-  },
-  nudges: {
-    label: "Nudges",
-    title: "Tiny resets before tension builds.",
-    desc: "Keep stretch, eye, and hydration prompts available without making them loud.",
-  },
-  sounds: {
-    label: "Sounds",
-    title: "Pick a sound and let it carry you.",
-    desc: "Choose a focus or night soundscape with a gentle visual rhythm.",
-  },
-  night: {
-    label: "Night",
-    title: "Let the day close softly.",
-    desc: "Review what worked, what drained attention, and what tomorrow should protect.",
-  },
+type ContextItem = {
+  label: string;
+  title: string;
+  detail: string;
+  meta: string;
+  tone: "green" | "amber" | "blue" | "red" | "neutral";
+  icon: LucideIcon;
 };
 
 const emptyInputStats: InputActivityStats = {
@@ -123,12 +99,45 @@ const emptyInputStats: InputActivityStats = {
   lastInput: "none",
 };
 
+const disconnectedAccount: ProviderAccount = {
+  state: "disconnected",
+  configured: true,
+  signals: null,
+  displayName: null,
+};
+
+const providerEnvHints: Record<ProviderId, string> = {
+  gmail: "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and ZENLY_TOKEN_SECRET",
+  slack: "SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, and ZENLY_TOKEN_SECRET",
+};
+
+const engineMap = [
+  { name: "Identity", status: "Learning role, cadence, priorities", icon: UserRoundCheck },
+  { name: "Context", status: "Combining mail, Slack, activity, and calendar", icon: Brain },
+  { name: "Memory", status: "Capturing decisions, commitments, and handoffs", icon: Database },
+  { name: "Intelligence", status: "Ranking what matters before recommending", icon: Sparkles },
+  { name: "Execution", status: "Approval required before any external action", icon: Zap },
+  { name: "Trust", status: "Every recommendation shows source and confidence", icon: ShieldCheck },
+];
+
+const sourceReadiness = [
+  { name: "Gmail", icon: Mail, state: "connected-input" },
+  { name: "Slack", icon: MessageSquareText, state: "connected-input" },
+  { name: "Calendar", icon: CalendarDays, state: "simulated" },
+  { name: "GitHub", icon: GitPullRequest, state: "simulated" },
+  { name: "Docs", icon: FileText, state: "simulated" },
+];
+
 function getTodayActivityKey() {
-  return `zenly-input-activity-${new Date().toISOString().slice(0, 10)}`;
+  return `zenly-context-activity-${new Date().toISOString().slice(0, 10)}`;
 }
 
 function clamp(value: number, min = 0, max = 100) {
   return Math.min(max, Math.max(min, value));
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function getCommunicationLoad(signals: CommunicationSignals) {
@@ -149,21 +158,17 @@ function getActivityLoad(stats: InputActivityStats) {
 function getWorkloadReport({
   signals,
   inputStats,
-  focusMinutes,
-  breaks,
 }: {
   signals: CommunicationSignals;
   inputStats: InputActivityStats;
-  focusMinutes: number;
-  breaks: number;
 }): WorkloadReport {
   const communicationLoad = getCommunicationLoad(signals);
   const activityLoad = getActivityLoad(inputStats);
-  const durationLoad = clamp(inputStats.activeSeconds / 45 + focusMinutes * 0.9);
-  const recoveryCredit = clamp(breaks * 12);
+  const durationLoad = clamp(inputStats.activeSeconds / 45);
+  const recoveryCredit = 0;
   const hour = new Date().getHours();
   const afterHours = hour < 8 || hour >= 18;
-  const overloadScore = clamp(communicationLoad * 0.38 + activityLoad * 0.34 + durationLoad * 0.28 - recoveryCredit * 0.35);
+  const overloadScore = clamp(communicationLoad * 0.42 + activityLoad * 0.34 + durationLoad * 0.24);
 
   if (afterHours && overloadScore >= 35) {
     return {
@@ -173,8 +178,8 @@ function getWorkloadReport({
       recoveryCredit,
       overloadScore,
       state: "after_hours",
-      headline: "After-hours pressure",
-      message: "Work is still pulling on you. Queue a wind-down sound and close only the urgent loops.",
+      headline: "After-hours context is active",
+      message: "Zenly will separate urgent loops from everything that can wait until the next work window.",
     };
   }
 
@@ -186,8 +191,8 @@ function getWorkloadReport({
       recoveryCredit,
       overloadScore,
       state: "overloaded",
-      headline: "Overload building",
-      message: "You are carrying message pressure and active work at once. Take two minutes, then clear only urgent items.",
+      headline: "Too many active signals",
+      message: "Start with the waiting-on-you items, then protect a focus block before opening more threads.",
     };
   }
 
@@ -199,8 +204,8 @@ function getWorkloadReport({
       recoveryCredit,
       overloadScore,
       state: "busy",
-      headline: "Busy but manageable",
-      message: "A short reset would keep this from spilling over. Stretch or rest your eyes before the next block.",
+      headline: "Context load is rising",
+      message: "Zenly found enough new signal to justify a guided resume before switching projects.",
     };
   }
 
@@ -212,8 +217,8 @@ function getWorkloadReport({
       recoveryCredit,
       overloadScore,
       state: "focused",
-      headline: "Focused stretch",
-      message: "You are in a strong work rhythm. Keep notifications quiet and take an eye reset after this block.",
+      headline: "Focus state detected",
+      message: "You appear to be in a work block. Keep inbound updates batched unless something is urgent.",
     };
   }
 
@@ -224,9 +229,50 @@ function getWorkloadReport({
     recoveryCredit,
     overloadScore,
     state: "calm",
-    headline: "Calm workload",
-    message: "Signals are light right now. This is a good window for focused work or a clean planning pass.",
+    headline: "Context is stable",
+    message: "Signals are light. This is a good time to continue the current project without scanning every app.",
   };
+}
+
+function useSupabaseUser() {
+  const [status, setStatus] = useState<AuthStatus>("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    let subscription: { subscription: { unsubscribe: () => void } } | null = null;
+
+    const fallbackTimer = window.setTimeout(() => {
+      if (!cancelled) setStatus("signed_out");
+    }, 1800);
+
+    try {
+      const supabase = createClient();
+
+      supabase.auth
+        .getUser()
+        .then(({ data }) => {
+          if (!cancelled) setStatus(data.user ? "signed_in" : "signed_out");
+        })
+        .catch(() => {
+          if (!cancelled) setStatus("signed_out");
+        });
+
+      const authListener = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!cancelled) setStatus(session?.user ? "signed_in" : "signed_out");
+      });
+      subscription = authListener.data;
+    } catch {
+      setStatus("signed_out");
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(fallbackTimer);
+      subscription?.subscription.unsubscribe();
+    };
+  }, []);
+
+  return status;
 }
 
 function useInputActivity() {
@@ -248,18 +294,13 @@ function useInputActivity() {
   }, []);
 
   useEffect(() => {
-    if (saveTimer.current) {
-      window.clearTimeout(saveTimer.current);
-    }
-
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       window.localStorage.setItem(getTodayActivityKey(), JSON.stringify(stats));
     }, 250);
 
     return () => {
-      if (saveTimer.current) {
-        window.clearTimeout(saveTimer.current);
-      }
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
   }, [stats]);
 
@@ -270,22 +311,14 @@ function useInputActivity() {
 
     function onKeyDown() {
       markActivity();
-      setStats((current) => ({
-        ...current,
-        keyPresses: current.keyPresses + 1,
-        lastInput: "keyboard",
-      }));
+      setStats((current) => ({ ...current, keyPresses: current.keyPresses + 1, lastInput: "keyboard" }));
     }
 
     function onPointerDown(event: PointerEvent) {
       markActivity();
       lastPointer.current = { x: event.clientX, y: event.clientY };
       if (event.pointerType === "mouse" || event.pointerType === "") {
-        setStats((current) => ({
-          ...current,
-          mouseClicks: current.mouseClicks + 1,
-          lastInput: "mouse",
-        }));
+        setStats((current) => ({ ...current, mouseClicks: current.mouseClicks + 1, lastInput: "mouse" }));
       }
     }
 
@@ -299,7 +332,6 @@ function useInputActivity() {
         const previous = lastPointer.current;
         const distance = previous ? Math.hypot(event.clientX - previous.x, event.clientY - previous.y) : 0;
         lastPointer.current = { x: event.clientX, y: event.clientY };
-
         return {
           ...current,
           mouseMoves: current.mouseMoves + 1,
@@ -314,7 +346,6 @@ function useInputActivity() {
       const preciseDelta = event.deltaMode === 0 && Math.abs(event.deltaY) < 80;
       const horizontalScroll = Math.abs(event.deltaX) > 0;
       const likelyTrackpad = preciseDelta || horizontalScroll;
-
       setStats((current) => ({
         ...current,
         wheelEvents: current.wheelEvents + 1,
@@ -326,11 +357,7 @@ function useInputActivity() {
     const activeTimer = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       if (Date.now() - lastActivityAt.current > 15000) return;
-
-      setStats((current) => ({
-        ...current,
-        activeSeconds: current.activeSeconds + 1,
-      }));
+      setStats((current) => ({ ...current, activeSeconds: current.activeSeconds + 1 }));
     }, 1000);
 
     window.addEventListener("keydown", onKeyDown);
@@ -347,65 +374,8 @@ function useInputActivity() {
     };
   }, []);
 
-  return {
-    stats,
-    reset: () => {
-      window.localStorage.removeItem(getTodayActivityKey());
-      lastActivityAt.current = 0;
-      lastPointer.current = null;
-      lastPointerMoveAt.current = 0;
-      setStats(emptyInputStats);
-    },
-  };
+  return stats;
 }
-
-type AuthStatus = "loading" | "signed_in" | "signed_out";
-type SyncStatus = "idle" | "saving" | "saved" | "signed_out" | "error";
-type SnapshotRow = {
-  id: string;
-  captured_at: string;
-  overload_score: number;
-  state: WorkloadState;
-};
-
-function useSupabaseUser() {
-  const [status, setStatus] = useState<AuthStatus>("loading");
-
-  useEffect(() => {
-    const supabase = createClient();
-    let cancelled = false;
-
-    supabase.auth.getUser().then(({ data }) => {
-      if (!cancelled) setStatus(data.user ? "signed_in" : "signed_out");
-    });
-
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
-      setStatus(session?.user ? "signed_in" : "signed_out");
-    });
-
-    return () => {
-      cancelled = true;
-      subscription.subscription.unsubscribe();
-    };
-  }, []);
-
-  return status;
-}
-
-type ProviderId = "gmail" | "slack";
-type ProviderAccount = {
-  state: ProviderState;
-  configured: boolean;
-  signals: Record<string, number> | null;
-  displayName: string | null;
-};
-
-const disconnectedAccount: ProviderAccount = { state: "disconnected", configured: true, signals: null, displayName: null };
-
-const providerEnvHints: Record<ProviderId, string> = {
-  gmail: "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and ZENLY_TOKEN_SECRET",
-  slack: "SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, and ZENLY_TOKEN_SECRET",
-};
 
 function useProviderAccount(provider: ProviderId, authStatus: AuthStatus) {
   const [account, setAccount] = useState<ProviderAccount>(disconnectedAccount);
@@ -621,366 +591,113 @@ function useWorkloadSync({
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [saveSnapshot]);
 
-  const previousState = useRef(workload.state);
-  useEffect(() => {
-    const entered = workload.state;
-    if (previousState.current === entered) return;
-    previousState.current = entered;
-    if (entered === "busy" || entered === "overloaded" || entered === "after_hours") {
-      void saveSnapshot({ force: true });
-    }
-  }, [saveSnapshot, workload.state]);
-
   return { status, lastSavedAt, saveSnapshot };
 }
 
-function GlowCard({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <section
-      className={cn(
-        "relative overflow-hidden rounded-[30px] border border-white/10 bg-white/[0.075] p-5 shadow-[0_26px_80px_rgba(0,0,0,0.34)] backdrop-blur-2xl",
-        className,
-      )}
-    >
-      {children}
-    </section>
-  );
+function buildSignals(gmail: ProviderAccount, slack: ProviderAccount): CommunicationSignals {
+  return {
+    gmailUnread: Number(gmail.signals?.unread ?? 0),
+    gmailImportant: Number(gmail.signals?.important ?? 0),
+    gmailUrgent: Number(gmail.signals?.urgent ?? 0),
+    slackMessages: Number(slack.signals?.messages ?? 0),
+    slackMentions: Number(slack.signals?.mentions ?? 0),
+    slackPriorityChannels: Number(slack.signals?.priorityChannels ?? 0),
+  };
 }
 
-function IntegrationCard({
-  provider,
-  state,
-  detail,
-  icon: Icon,
-  glow,
-  metrics,
-  onConnect,
-}: {
-  provider: string;
-  state: ProviderState;
-  detail?: string;
-  icon: LucideIcon;
-  glow: string;
-  metrics: string[];
-  onConnect: () => void;
-}) {
-  return (
-    <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-black/24 p-4 ring-1 ring-white/[0.03]">
-      <div className={cn("absolute -right-10 -top-12 h-28 w-28 rounded-full blur-3xl", glow)} />
-      <div className="relative flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/12">
-            <Icon size={18} />
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-[15px] font-semibold text-white">{provider}</p>
-            <p className={cn("mt-0.5 truncate text-[12px] font-medium text-white/52", !detail && "capitalize")}>
-              {state === "disconnected" ? "Connect account" : detail ?? state}
-            </p>
-          </div>
-        </div>
-        <button onClick={onConnect} className="shrink-0 rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#11131b] shadow-[0_0_26px_rgba(255,255,255,0.24)]">
-          {state === "disconnected" ? "Connect" : "Sync"}
-        </button>
-      </div>
-      <div className="relative mt-4 flex flex-wrap gap-2">
-        {metrics.map((metric) => (
-          <span key={metric} className="rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white/48 ring-1 ring-white/10">
-            {metric}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+function buildContextItems(signals: CommunicationSignals, workload: WorkloadReport): ContextItem[] {
+  const urgentCount = signals.gmailUrgent + signals.slackMentions;
+  const inboxTotal = signals.gmailUnread + signals.slackMessages;
+  const priorityThreads = signals.gmailImportant + signals.slackPriorityChannels;
+
+  return [
+    {
+      label: "Where you left off",
+      title: workload.state === "focused" ? "Continue the active work block" : "Return to the current operating context",
+      detail:
+        workload.state === "focused"
+          ? "Your recent activity suggests you were already deep in execution. Resume without opening new sources first."
+          : "Zenly has enough signal to rebuild your work state before you switch tabs.",
+      meta: `${Math.round(workload.activityLoad)} activity load`,
+      tone: "blue",
+      icon: History,
+    },
+    {
+      label: "What changed",
+      title: inboxTotal > 0 ? `${pluralize(inboxTotal, "new signal")} across Gmail and Slack` : "No major inbound changes detected",
+      detail:
+        inboxTotal > 0
+          ? "Inbound updates have been grouped so you can scan them by importance instead of source."
+          : "Connected sources are quiet. Simulated sources are waiting for integrations.",
+      meta: `${signals.gmailUnread} mail / ${signals.slackMessages} Slack`,
+      tone: inboxTotal > 20 ? "amber" : "green",
+      icon: Bell,
+    },
+    {
+      label: "What should happen next",
+      title: urgentCount > 0 ? "Clear waiting-on-you items first" : "Resume the highest-priority project",
+      detail:
+        urgentCount > 0
+          ? "Mentions and urgent mail are the only items elevated above project work."
+          : "No urgent interruption is winning right now. Zenly recommends one focused continuation pass.",
+      meta: `${urgentCount} urgent`,
+      tone: urgentCount > 0 ? "red" : "green",
+      icon: Target,
+    },
+    {
+      label: "Who is waiting",
+      title: priorityThreads > 0 ? `${pluralize(priorityThreads, "priority thread")} need review` : "No priority owner is blocked",
+      detail:
+        priorityThreads > 0
+          ? "These are the people-facing threads Zenly would review before expanding the rest of the inbox."
+          : "No connected source currently suggests someone is blocked on your response.",
+      meta: `${signals.gmailImportant} important / ${signals.slackPriorityChannels} channels`,
+      tone: priorityThreads > 0 ? "amber" : "neutral",
+      icon: UserRoundCheck,
+    },
+    {
+      label: "Attention today",
+      title: workload.headline,
+      detail: workload.message,
+      meta: `${Math.round(workload.overloadScore)} context load`,
+      tone: workload.overloadScore >= 70 ? "red" : workload.overloadScore >= 45 ? "amber" : "green",
+      icon: Brain,
+    },
+  ];
 }
 
-function ProgressRing({ progress, color, glow, label }: { progress: number; color: string; glow: string; label: string }) {
-  const radius = 54;
-  const circumference = 2 * Math.PI * radius;
-
-  return (
-    <div className="relative flex h-40 w-40 items-center justify-center rounded-full bg-black/28 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_0_70px_rgba(189,167,255,0.2)]">
-      <svg className="absolute h-full w-full -rotate-90" viewBox="0 0 150 150" aria-hidden="true">
-        <circle cx="75" cy="75" r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="10" />
-        <circle
-          cx="75"
-          cy="75"
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeLinecap="round"
-          strokeWidth="10"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference * (1 - progress)}
-          className="transition-all duration-500"
-          style={{ filter: `drop-shadow(0 0 16px ${glow}) drop-shadow(0 0 34px ${glow})` }}
-        />
-      </svg>
-      <div className="text-center">
-        <p className="text-[29px] font-semibold leading-none text-white">{label}</p>
-        <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/38">remaining</p>
-      </div>
-    </div>
-  );
-}
-
-function Waveform() {
-  return (
-    <div className="flex h-16 items-center gap-1.5">
-      {Array.from({ length: 22 }).map((_, index) => (
-        <span
-          key={index}
-          className="w-1.5 rounded-full bg-[#82d9ff] opacity-85 animate-[zenlyWave_1.35s_ease-in-out_infinite]"
-          style={{
-            height: `${14 + ((index * 13) % 34)}px`,
-            animationDelay: `${index * 0.045}s`,
-            boxShadow: "0 0 18px rgba(130,217,255,0.5)",
-          }}
-        />
-      ))}
-    </div>
-  );
+function formatTime(value: Date | null) {
+  if (!value) return "Not saved yet";
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(value);
 }
 
 export function ZenlyApp() {
-  const [activeTab, setActiveTab] = useState<TabId>("morning");
-  const [planBuilt, setPlanBuilt] = useState(false);
-  const [planBuilding, setPlanBuilding] = useState(false);
-  const [plan, setPlan] = useState<{ headline: string | null; items: typeof planItems }>({ headline: null, items: planItems });
-  const [nightReview, setNightReview] = useState<{ score: number; insights: string[]; windDown: string } | null>(null);
-  const [nightReviewLoading, setNightReviewLoading] = useState(false);
-  const nightReviewFetchedRef = useRef(false);
-  const [gmailState, setGmailState] = useState<ProviderState>("disconnected");
-  const [slackState, setSlackState] = useState<ProviderState>("disconnected");
-  const [modeIndex, setModeIndex] = useState(0);
-  const [secondsLeft, setSecondsLeft] = useState(focusModes[0].minutes * 60);
-  const [running, setRunning] = useState(false);
-  const [sessions, setSessions] = useState(2);
-  const [breaks, setBreaks] = useState(1);
-  const [nudges, setNudges] = useState({ stretch: true, eyes: true, hydrate: true });
-  const [sound, setSound] = useState("Lo-fi");
-  const [volume, setVolume] = useState(58);
-  const { stats: inputStats, reset: resetInputStats } = useInputActivity();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [defaultBaseId, setDefaultBaseId] = useState<string | null>(null);
-  const lastWorkloadAlert = useRef("");
-
-  const activeMode = focusModes[modeIndex];
-  const totalSeconds = activeMode.minutes * 60;
-  const progress = 1 - secondsLeft / totalSeconds;
-  const timeLabel = `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`;
-  const focusMinutes = useMemo(() => sessions * 25 + Math.floor((totalSeconds - secondsLeft) / 60), [secondsLeft, sessions, totalSeconds]);
-  const copy = tabCopy[activeTab];
-  const inputMinutes = Math.floor(inputStats.activeSeconds / 60);
-  const inputLoad = Math.min(
-    100,
-    Math.round(inputStats.keyPresses * 0.4 + inputStats.mouseClicks * 1.4 + inputStats.trackpadGestures * 0.8 + inputStats.mouseDistance / 420),
-  );
   const authStatus = useSupabaseUser();
-  const { account: gmailAccount, refresh: refreshGmail, connect: connectGmail } = useProviderAccount("gmail", authStatus);
-  const { account: slackAccount, refresh: refreshSlack, connect: connectSlack } = useProviderAccount("slack", authStatus);
-  const usingRealProviders = authStatus === "signed_in";
-  const gmailCardState = usingRealProviders ? gmailAccount.state : gmailState;
-  const slackCardState = usingRealProviders ? slackAccount.state : slackState;
-  const communicationSignals = useMemo<CommunicationSignals>(() => {
-    const realGmail = gmailAccount.signals;
-    const realSlack = slackAccount.signals;
-    return {
-      gmailUnread: realGmail ? realGmail.unread ?? 0 : gmailState === "connected" ? 24 : 0,
-      gmailImportant: realGmail ? realGmail.important ?? 0 : gmailState === "connected" ? 7 : 0,
-      gmailUrgent: realGmail ? realGmail.urgent ?? 0 : gmailState === "connected" ? 3 : 0,
-      slackMessages: realSlack ? realSlack.messages ?? 0 : slackState === "connected" ? 18 : 0,
-      slackMentions: realSlack ? realSlack.mentions ?? 0 : slackState === "connected" ? 3 : 0,
-      slackPriorityChannels: realSlack ? realSlack.priorityChannels ?? 0 : slackState === "connected" ? 2 : 0,
-    };
-  }, [gmailAccount.signals, gmailState, slackAccount.signals, slackState]);
-  const workload = useMemo(
-    () => getWorkloadReport({ signals: communicationSignals, inputStats, focusMinutes, breaks }),
-    [breaks, communicationSignals, focusMinutes, inputStats],
-  );
-  const { status: syncStatus, lastSavedAt, saveSnapshot } = useWorkloadSync({
-    authStatus,
-    workload,
-    signals: communicationSignals,
-    inputStats,
-  });
-  const workloadHistory = useWorkloadHistory(authStatus === "signed_in", lastSavedAt);
+  const inputStats = useInputActivity();
+  const gmail = useProviderAccount("gmail", authStatus);
+  const slack = useProviderAccount("slack", authStatus);
 
-  useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => {
-      setSecondsLeft((current) => {
-        if (current <= 1) {
-          setRunning(false);
-          setSessions((value) => (modeIndex === 0 ? value + 1 : value));
-          setBreaks((value) => (modeIndex === 0 ? value : value + 1));
-          void saveSnapshot({ force: true });
-          return totalSeconds;
-        }
-        return current - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [modeIndex, running, saveSnapshot, totalSeconds]);
+  const signals = useMemo(() => buildSignals(gmail.account, slack.account), [gmail.account, slack.account]);
+  const workload = useMemo(() => getWorkloadReport({ signals, inputStats }), [signals, inputStats]);
+  const sync = useWorkloadSync({ authStatus, workload, signals, inputStats });
+  const history = useWorkloadHistory(authStatus === "signed_in", sync.lastSavedAt);
+  const contextItems = useMemo(() => buildContextItems(signals, workload), [signals, workload]);
 
-  useEffect(() => {
-    if (typeof Notification === "undefined") return;
-    setNotificationsEnabled(Notification.permission === "granted");
-  }, []);
+  const connectedSources = Number(gmail.account.state === "connected") + Number(slack.account.state === "connected");
+  const engineConfidence = clamp(48 + connectedSources * 16 + Math.min(history.length, 4) * 4 + Math.round(workload.communicationLoad / 8), 0, 96);
+  const primaryItem = contextItems[2];
 
-  useEffect(() => {
-    if (!notificationsEnabled) return;
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    if (workload.state !== "overloaded" && workload.state !== "after_hours") return;
-    if (inputStats.activeSeconds < 60) return;
+  const resumeWork = useCallback(() => {
+    void sync.saveSnapshot({ force: true });
+    document.getElementById("zenly-next-actions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [sync]);
 
-    const alertKey = `${workload.state}-${Math.floor(inputStats.activeSeconds / 600)}`;
-    if (lastWorkloadAlert.current === alertKey) return;
-    lastWorkloadAlert.current = alertKey;
-
-    new Notification(workload.headline, {
-      body: workload.message,
-      silent: true,
-    });
-  }, [inputStats.activeSeconds, notificationsEnabled, workload.headline, workload.message, workload.state]);
-
-  useEffect(() => {
-    if (authStatus !== "signed_in") {
-      setDefaultBaseId(null);
-      return;
-    }
-    let cancelled = false;
-    fetch("/api/zenly/bases")
-      .then((response) => (response.ok ? response.json() : null))
-      .then((json) => {
-        if (cancelled) return;
-        const firstBase = json?.bases?.[0];
-        if (firstBase?.id) setDefaultBaseId(firstBase.id);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [authStatus]);
-
-  const previousAutomationState = useRef(workload.state);
-  useEffect(() => {
-    const entered = workload.state;
-    if (previousAutomationState.current === entered) return;
-    previousAutomationState.current = entered;
-    if (authStatus !== "signed_in" || !defaultBaseId) return;
-
-    fetch("/api/zenly/automations/evaluate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ baseId: defaultBaseId, state: entered }),
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((json) => {
-        if (!Array.isArray(json?.notifications)) return;
-        if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-        for (const message of json.notifications as string[]) {
-          new Notification("Zenly automation", { body: message, silent: true });
-        }
-      })
-      .catch(() => {});
-  }, [authStatus, defaultBaseId, workload.state]);
-
-  useEffect(() => {
-    if (activeTab !== "night") return;
-    if (authStatus !== "signed_in") return;
-    if (nightReviewFetchedRef.current) return;
-    nightReviewFetchedRef.current = true;
-    void fetchNightReview();
-  }, [activeTab, authStatus]);
-
-  function chooseMode(index: number) {
-    setModeIndex(index);
-    setSecondsLeft(focusModes[index].minutes * 60);
-    setRunning(false);
-  }
-
-  async function buildPlan() {
-    if (authStatus !== "signed_in") {
-      setPlanBuilt(true);
-      return;
-    }
-    setPlanBuilding(true);
-    try {
-      const response = await fetch("/api/zenly/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          localTime: new Date().toTimeString().slice(0, 5),
-          state: workload.state,
-          overloadScore: workload.overloadScore,
-          communicationLoad: workload.communicationLoad,
-          activityLoad: workload.activityLoad,
-          durationLoad: workload.durationLoad,
-          gmailSignals: {
-            unread: communicationSignals.gmailUnread,
-            important: communicationSignals.gmailImportant,
-            urgent: communicationSignals.gmailUrgent,
-          },
-          slackSignals: {
-            messages: communicationSignals.slackMessages,
-            mentions: communicationSignals.slackMentions,
-            priorityChannels: communicationSignals.slackPriorityChannels,
-          },
-          focus: { sessions, minutes: focusMinutes, breaks },
-        }),
-      });
-      const json = response.ok ? await response.json() : null;
-      if (json?.plan?.items?.length) {
-        setPlan({ headline: json.plan.headline ?? null, items: json.plan.items });
-      }
-    } catch {
-      // fall back to the default plan below
-    }
-    setPlanBuilding(false);
-    setPlanBuilt(true);
-  }
-
-  async function fetchNightReview() {
-    if (authStatus !== "signed_in" || nightReviewLoading) return;
-    setNightReviewLoading(true);
-    try {
-      const response = await fetch("/api/zenly/night-review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          localTime: new Date().toTimeString().slice(0, 5),
-          focus: { sessions, minutes: focusMinutes, breaks },
-        }),
-      });
-      const json = response.ok ? await response.json() : null;
-      if (json?.review) {
-        setNightReview(json.review);
-      }
-    } catch {
-      // keep the static fallback below
-    }
-    setNightReviewLoading(false);
-  }
-
-  function simulateConnect(provider: "gmail" | "slack") {
-    if (provider === "gmail") {
-      setGmailState("syncing");
-      window.setTimeout(() => setGmailState("connected"), 800);
-      return;
-    }
-    setSlackState("syncing");
-    window.setTimeout(() => setSlackState("connected"), 800);
-  }
-
-  async function enableWorkloadAlerts() {
-    if (typeof Notification === "undefined") return;
-    const permission = await Notification.requestPermission();
-    setNotificationsEnabled(permission === "granted");
+  if (authStatus === "loading") {
+    return <main className="grid min-h-screen place-items-center bg-[#050609] text-white/50">Loading Zenly...</main>;
   }
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#050609] text-white tracking-normal">
+    <main className="relative min-h-screen overflow-hidden bg-[#050609] text-white tracking-normal">
       <div className="pointer-events-none fixed inset-0">
         <div className="absolute left-[-16%] top-[-22%] h-[680px] w-[680px] rounded-full bg-[#79edaa]/28 blur-[145px]" />
         <div className="absolute right-[-12%] top-[-4%] h-[680px] w-[680px] rounded-full bg-[#bda7ff]/32 blur-[145px]" />
@@ -988,432 +705,366 @@ export function ZenlyApp() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(255,255,255,0.08),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(0,0,0,0.2))]" />
       </div>
 
-      <div className="relative mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-4 sm:px-6 lg:px-8">
-        <div className="grid min-h-[calc(100vh-32px)] gap-4 lg:grid-cols-[86px_minmax(0,1fr)_292px]">
-          <aside className="hidden flex-col justify-between rounded-[34px] border border-white/10 bg-white/[0.07] p-3 shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-2xl lg:flex">
-            <div className="flex h-14 w-14 items-center justify-center rounded-[24px] bg-white/12 text-[#9ff0bf] shadow-[0_0_34px_rgba(159,240,191,0.18)] ring-1 ring-white/12">
-              <Leaf size={20} />
+      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-4 sm:px-6 lg:px-8">
+        <header className="flex flex-wrap items-center justify-between gap-3 rounded-[26px] border border-white/[0.08] bg-white/[0.065] p-3 shadow-[0_24px_72px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
+          <a href="/" className="flex items-center gap-3" aria-label="Zenly home">
+            <span className="grid h-12 w-12 place-items-center rounded-[18px] bg-white/10 text-[#9ff0bf] shadow-[0_0_34px_rgba(159,240,191,0.16)] ring-1 ring-white/10">
+              <Leaf size={19} />
+            </span>
+            <span>
+              <span className="block text-[18px] font-semibold leading-none text-white">Zenly</span>
+              <span className="block text-[12px] text-white/48">Continuous work context</span>
+            </span>
+          </a>
+
+          <nav className="flex items-center gap-2">
+            <a href="/base" className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-[#11131b] shadow-[0_0_30px_rgba(255,255,255,0.18)]">
+              <Database size={15} />
+              Memory
+            </a>
+            <a href="/settings" className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/58 ring-1 ring-white/10 transition hover:bg-white/14 hover:text-white" title="Settings">
+              <Settings size={15} />
+            </a>
+          </nav>
+        </header>
+
+        {authStatus === "signed_out" && (
+          <section className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-white/[0.08] bg-white/[0.075] px-4 py-3 shadow-[0_26px_80px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
+            <div>
+              <p className="text-[14px] font-semibold text-white">Sign in to connect your real work context.</p>
+              <p className="text-[12px] text-white/48">Until then, Zenly can show the operating model but cannot sync personal sources.</p>
             </div>
-            <nav className="flex flex-col gap-2">
-              {tabs.map((tab) => {
-                const Icon = tab.icon;
-                const selected = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      "group flex h-14 w-14 items-center justify-center rounded-[22px] text-white/42 transition",
-                      selected && "bg-white/14 text-white shadow-[0_0_34px_rgba(255,255,255,0.14)] ring-1 ring-white/10",
-                    )}
-                    aria-label={tab.label}
-                    aria-pressed={selected}
-                    title={tab.label}
-                  >
-                    <Icon size={20} />
-                  </button>
-                );
-              })}
-            </nav>
-            <div className="flex flex-col gap-2">
-              <a
-                href="/settings"
-                title="Settings"
-                aria-label="Settings"
-                className="flex h-14 w-14 items-center justify-center rounded-[22px] text-white/42 transition hover:text-white"
-              >
-                <Settings size={19} />
-              </a>
-              <a
-                href="/base"
-                title="Base — tables & automations"
-                aria-label="Base — tables & automations"
-                className="flex h-14 w-14 items-center justify-center rounded-[22px] bg-white text-[#11131b] shadow-[0_0_30px_rgba(255,255,255,0.22)]"
-              >
-                <LayoutGrid size={20} />
-              </a>
-            </div>
-          </aside>
-
-          <section className="relative overflow-hidden rounded-[42px] border border-white/10 bg-[linear-gradient(145deg,rgba(121,237,170,0.18),rgba(189,167,255,0.19)_44%,rgba(255,182,111,0.13)_76%,rgba(255,255,255,0.06)_100%)] p-5 shadow-[0_36px_130px_rgba(0,0,0,0.42),0_0_90px_rgba(189,167,255,0.12)] sm:p-7">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_4%,rgba(159,240,191,0.34),transparent_26%),radial-gradient(circle_at_84%_8%,rgba(130,217,255,0.26),transparent_30%),radial-gradient(circle_at_52%_104%,rgba(255,182,111,0.22),transparent_32%)] blur-[3px]" />
-            <div className="relative flex min-h-full flex-col">
-              <header className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
-                <div className="max-w-2xl">
-                  <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-white/52">{copy.label}</p>
-                  <h1 className="mt-3 text-[38px] font-semibold leading-[1.04] text-white sm:text-[56px]">{copy.title}</h1>
-                  <p className="mt-4 max-w-xl text-[15px] leading-6 text-white/66">{copy.desc}</p>
-                </div>
-                {activeTab === "morning" && (
-                  <button
-                    onClick={() => void buildPlan()}
-                    disabled={planBuilding}
-                    className="inline-flex w-fit items-center gap-2 rounded-full bg-white px-5 py-3 text-[13px] font-semibold text-[#11131b] shadow-[0_0_36px_rgba(255,255,255,0.22)] disabled:opacity-70"
-                  >
-                    <Sparkles size={16} className={cn(planBuilding && "animate-spin")} />
-                    {planBuilding ? "Building…" : "Build plan"}
-                  </button>
-                )}
-              </header>
-
-              <div className="mt-7 flex-1">
-                {activeTab === "morning" && (
-                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-                    <GlowCard className="min-h-[420px]">
-                      {plan.headline && planBuilt && (
-                        <p className="mb-4 text-[13px] font-semibold uppercase tracking-[0.16em] text-white/55">{plan.headline}</p>
-                      )}
-                      <div className="grid gap-3">
-                        {plan.items.map((item, index) => (
-                          <div
-                            key={`${item.time}-${index}`}
-                            className={cn("grid grid-cols-[58px_minmax(0,1fr)] gap-4 transition duration-500", planBuilt ? "translate-y-0 opacity-100" : "translate-y-2 opacity-55")}
-                            style={{ transitionDelay: `${index * 80}ms` }}
-                          >
-                            <span className="pt-4 font-mono text-[12px] font-medium text-white/42">{item.time}</span>
-                            <div className="rounded-[22px] bg-black/24 p-4 ring-1 ring-white/8">
-                              <p className="text-[15px] font-semibold text-white">{item.title}</p>
-                              <p className="mt-1 text-[13px] leading-5 text-white/50">{item.desc}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </GlowCard>
-
-                    <div className="space-y-3">
-                      <IntegrationCard
-                        provider="Gmail"
-                        state={gmailCardState}
-                        detail={usingRealProviders ? gmailAccount.displayName ?? undefined : undefined}
-                        icon={Mail}
-                        glow="bg-[#ff8f7a]/32"
-                        metrics={gmailCardState !== "disconnected" ? [`${communicationSignals.gmailUnread} unread`, `${communicationSignals.gmailImportant} important`, `${communicationSignals.gmailUrgent} urgent`] : ["Inbox", "Urgent", "Important"]}
-                        onConnect={
-                          usingRealProviders
-                            ? gmailAccount.state === "disconnected"
-                              ? connectGmail
-                              : () => void refreshGmail()
-                            : () => simulateConnect("gmail")
-                        }
-                      />
-                      <IntegrationCard
-                        provider="Slack"
-                        state={slackCardState}
-                        detail={usingRealProviders ? slackAccount.displayName ?? undefined : undefined}
-                        icon={MessageSquareText}
-                        glow="bg-[#82d9ff]/34"
-                        metrics={slackCardState !== "disconnected" ? [`${communicationSignals.slackMessages} messages`, `${communicationSignals.slackMentions} mentions`, `${communicationSignals.slackPriorityChannels} priority`] : ["Mentions", "Channels", "DMs"]}
-                        onConnect={
-                          usingRealProviders
-                            ? slackAccount.state === "disconnected"
-                              ? connectSlack
-                              : () => void refreshSlack()
-                            : () => simulateConnect("slack")
-                        }
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === "focus" && (
-                  <GlowCard className="grid min-h-[430px] place-items-center">
-                    <div className="flex flex-col items-center gap-6 text-center">
-                      <ProgressRing progress={progress} color={activeMode.color} glow={activeMode.glow} label={timeLabel} />
-                      <div className="flex rounded-full bg-black/24 p-1 ring-1 ring-white/10">
-                        {focusModes.map((mode, index) => (
-                          <button key={mode.label} onClick={() => chooseMode(index)} className={cn("rounded-full px-4 py-2 text-[13px] font-medium text-white/50", modeIndex === index && "bg-white/14 text-white shadow-[0_0_24px_rgba(255,255,255,0.1)]")}>
-                            {mode.minutes} min
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex gap-3">
-                        <button onClick={() => setRunning((value) => !value)} className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-[#11131b] shadow-[0_0_32px_rgba(255,255,255,0.22)]">
-                          {running ? <CirclePause size={22} /> : <CirclePlay size={22} />}
-                        </button>
-                        <button onClick={() => setSecondsLeft(totalSeconds)} className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-white/12">
-                          <RotateCcw size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  </GlowCard>
-                )}
-
-                {activeTab === "nudges" && (
-                  <GlowCard className="min-h-[430px]">
-                    <div className="grid gap-3">
-                      {[
-                        ["stretch", "Stretch", "Release neck and shoulders", Leaf],
-                        ["eyes", "Eyes", "Look away for twenty seconds", Eye],
-                        ["hydrate", "Hydrate", "Take a slow water break", Droplets],
-                      ].map(([key, title, desc, Icon]) => (
-                        <button key={key as string} onClick={() => setNudges((value) => ({ ...value, [key as keyof typeof nudges]: !value[key as keyof typeof nudges] }))} className="flex w-full items-center justify-between rounded-[24px] bg-black/22 p-4 text-left ring-1 ring-white/8">
-                          <span className="flex items-center gap-4">
-                            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/10">
-                              <Icon size={19} />
-                            </span>
-                            <span>
-                              <span className="block text-[15px] font-semibold text-white">{title as string}</span>
-                              <span className="text-[13px] text-white/48">{desc as string}</span>
-                            </span>
-                          </span>
-                          <span className={cn("h-8 w-14 shrink-0 rounded-full p-1 transition", nudges[key as keyof typeof nudges] ? "bg-[#9ff0bf] shadow-[0_0_24px_rgba(159,240,191,0.34)]" : "bg-white/12")}>
-                            <span className={cn("block h-6 w-6 rounded-full bg-white transition", nudges[key as keyof typeof nudges] && "translate-x-6")} />
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </GlowCard>
-                )}
-
-                {activeTab === "sounds" && (
-                  <GlowCard className="min-h-[430px]">
-                    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_260px]">
-                      <div>
-                        <p className="text-[14px] text-white/48">Now playing</p>
-                        <h3 className="mt-1 text-[34px] font-semibold text-white">{sound}</h3>
-                        <Waveform />
-                        <input aria-label="Volume" value={volume} onChange={(event) => setVolume(Number(event.target.value))} type="range" min="0" max="100" className="mt-2 w-full accent-[#82d9ff]" />
-                      </div>
-                      <div className="grid gap-3">
-                        {sounds.map((item) => (
-                          <button key={item.name} onClick={() => setSound(item.name)} className={cn("rounded-[22px] bg-gradient-to-br p-4 text-left text-[#11131b] shadow-[0_0_32px_rgba(255,255,255,0.06)]", item.glow, sound === item.name && "ring-2 ring-white/50")}>
-                            <span className="block text-[15px] font-semibold">{item.name}</span>
-                            <span className="text-[12px] text-black/52">{item.tone}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </GlowCard>
-                )}
-
-                {activeTab === "night" && (
-                  <GlowCard className="min-h-[430px]">
-                    {authStatus !== "signed_in" ? (
-                      <div className="grid min-h-[380px] place-items-center text-center">
-                        <div className="max-w-xs">
-                          <p className="text-[15px] font-semibold text-white">See tonight&apos;s real review</p>
-                          <p className="mt-2 text-[13px] leading-5 text-white/50">
-                            <a href="/login?redirect=%2F" className="text-white/82 underline underline-offset-2 hover:text-white">
-                              Sign in
-                            </a>{" "}
-                            to get an honest look at how today actually went, built from your workload history.
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid gap-4 md:grid-cols-[230px_minmax(0,1fr)]">
-                        <div className="bg-[linear-gradient(180deg,#242739,#ffb66f_82%)] p-6 text-white shadow-[0_0_60px_rgba(255,182,111,0.2)]">
-                          <p className="font-mono text-[12px] uppercase tracking-[0.22em] text-white/48">Night score</p>
-                          <p className="mt-7 text-[66px] font-light leading-none">
-                            {nightReviewLoading ? "—" : nightReview?.score ?? "—"}
-                            <span className="text-[26px]">%</span>
-                          </p>
-                        </div>
-                        <div className="space-y-3">
-                          {nightReviewLoading ? (
-                            <div className="rounded-[22px] bg-black/22 p-4 text-[14px] font-medium text-white/50 ring-1 ring-white/8">
-                              Reading today&apos;s workload history…
-                            </div>
-                          ) : nightReview ? (
-                            nightReview.insights.map((insight) => (
-                              <div key={insight} className="rounded-[22px] bg-black/22 p-4 text-[14px] font-medium text-white ring-1 ring-white/8">{insight}</div>
-                            ))
-                          ) : (
-                            <button
-                              onClick={() => void fetchNightReview()}
-                              className="w-full rounded-[22px] bg-black/22 p-4 text-left text-[14px] font-medium text-white/68 ring-1 ring-white/8"
-                            >
-                              Generate tonight&apos;s review
-                            </button>
-                          )}
-                          <button onClick={() => { setSound("Rain"); setActiveTab("sounds"); }} className="w-full rounded-full bg-white px-5 py-3 text-left text-[13px] font-semibold text-[#11131b] shadow-[0_0_34px_rgba(255,255,255,0.2)]">
-                            {nightReview?.windDown ?? "Wind down with Rain"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </GlowCard>
-                )}
-              </div>
-            </div>
+            <a href="/login" className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-5 text-[13px] font-semibold text-[#11131b] shadow-[0_0_26px_rgba(255,255,255,0.18)]">
+              Sign in
+              <ArrowRight size={14} />
+            </a>
           </section>
+        )}
 
-          <aside className="grid gap-4 lg:grid-rows-[minmax(0,1.25fr)_auto_auto]">
-            <GlowCard className="bg-[linear-gradient(180deg,rgba(130,217,255,0.2),rgba(159,240,191,0.11)_58%,rgba(255,255,255,0.07))]">
-              <div className="absolute right-[-42px] top-[-42px] h-36 w-36 rounded-full bg-[#9ff0bf]/30 blur-3xl" />
-              <div className="relative">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[13px] text-white/48">Workload</p>
-                    <p className="mt-1 text-[44px] font-light leading-none text-white">
-                      {Math.round(workload.overloadScore)}<span className="text-[20px] text-white/42">/100</span>
-                    </p>
-                  </div>
-                  <span className={cn(
-                    "rounded-full px-3 py-1.5 text-[11px] font-semibold capitalize ring-1",
-                    workload.state === "overloaded" || workload.state === "after_hours"
-                      ? "bg-[#ffb66f]/20 text-[#ffcf9f] ring-[#ffb66f]/30"
-                      : workload.state === "focused"
-                        ? "bg-[#bda7ff]/20 text-[#d8ccff] ring-[#bda7ff]/30"
-                        : "bg-[#9ff0bf]/18 text-[#c9ffd1] ring-[#9ff0bf]/28",
-                  )}>
-                    {workload.state.replace("_", " ")}
-                  </span>
+        <section className="grid flex-1 gap-5 py-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="space-y-5">
+            <section className="relative overflow-hidden rounded-[30px] border border-white/[0.08] bg-[linear-gradient(145deg,rgba(121,237,170,0.16),rgba(189,167,255,0.15)_44%,rgba(255,182,111,0.1)_76%,rgba(255,255,255,0.055)_100%)] p-5 shadow-[0_32px_110px_rgba(0,0,0,0.42),0_0_80px_rgba(189,167,255,0.08)] md:grid md:grid-cols-[minmax(0,1fr)_260px] md:gap-5 lg:p-6">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_4%,rgba(159,240,191,0.34),transparent_26%),radial-gradient(circle_at_84%_8%,rgba(130,217,255,0.26),transparent_30%),radial-gradient(circle_at_52%_104%,rgba(255,182,111,0.22),transparent_32%)] blur-[3px]" />
+              <div className="min-w-0">
+                <div className="relative mb-5 flex flex-wrap items-center gap-2">
+                  <StatusPill tone={workload.overloadScore >= 70 ? "red" : workload.overloadScore >= 45 ? "amber" : "green"}>
+                    {Math.round(engineConfidence)}% context confidence
+                  </StatusPill>
+                  <StatusPill tone="neutral">{connectedSources}/2 live sources</StatusPill>
+                  <StatusPill tone="neutral">Saved {formatTime(sync.lastSavedAt)}</StatusPill>
                 </div>
-                <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-[#9ff0bf] shadow-[0_0_20px_rgba(159,240,191,0.62)]" style={{ width: `${workload.overloadScore}%` }} />
-                </div>
-                {workloadHistory.length > 1 && (
-                  <div className="mt-3 flex h-8 items-end gap-1" aria-label="Recent workload history">
-                    {[...workloadHistory].reverse().map((snapshot) => (
-                      <span
-                        key={snapshot.id}
-                        title={`${Math.round(snapshot.overload_score)}/100 · ${snapshot.state.replace("_", " ")}`}
-                        className={cn(
-                          "min-w-1 flex-1 rounded-full",
-                          snapshot.state === "overloaded" || snapshot.state === "after_hours" ? "bg-[#ffb66f]/80" : "bg-[#9ff0bf]/70",
-                        )}
-                        style={{ height: `${Math.max(12, snapshot.overload_score)}%` }}
-                      />
-                    ))}
-                  </div>
-                )}
-                <div className="mt-5 rounded-[24px] bg-black/24 p-4 ring-1 ring-white/8">
-                  <p className="text-[15px] font-semibold text-white">{workload.headline}</p>
-                  <p className="mt-2 text-[13px] leading-5 text-white/56">{workload.message}</p>
-                  {!notificationsEnabled && (
-                    <button onClick={enableWorkloadAlerts} className="mt-4 rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#11131b] shadow-[0_0_24px_rgba(255,255,255,0.16)]">
-                      Enable alerts
-                    </button>
-                  )}
-                  <p className="mt-3 text-[11px] leading-4 text-white/38">
-                    {syncStatus === "signed_out" ? (
-                      <a href="/login?redirect=%2F" className="text-white/68 underline underline-offset-2 hover:text-white">
-                        Sign in to save workload history →
-                      </a>
-                    ) : syncStatus === "error" ? (
-                      "Snapshot sync failed. Retrying soon."
-                    ) : syncStatus === "saving" ? (
-                      "Saving snapshot…"
-                    ) : lastSavedAt ? (
-                      `Snapshot saved ${lastSavedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-                    ) : (
-                      "Snapshots save automatically while you work."
-                    )}
-                  </p>
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  {[
-                    [Math.round(workload.communicationLoad), "comm"],
-                    [Math.round(workload.activityLoad), "activity"],
-                    [Math.round(workload.durationLoad), "duration"],
-                  ].map(([value, label]) => (
-                    <div key={label} className="rounded-[16px] bg-black/22 p-3 text-center ring-1 ring-white/8">
-                      <p className="text-[18px] font-semibold text-white">{value}</p>
-                      <p className="text-[10px] text-white/42">{label}</p>
-                    </div>
-                  ))}
+
+                <p className="relative text-[12px] font-semibold uppercase tracking-[0.16em] text-white/52">Resume Work</p>
+                <h1 className="relative mt-3 max-w-2xl text-[30px] font-semibold leading-[1.06] text-white sm:text-[40px] lg:text-[42px]">
+                  Here is everything you need to continue your work.
+                </h1>
+                <p className="relative mt-4 max-w-2xl text-[14px] leading-6 text-white/62">
+                  Zenly observes work signals, rebuilds the current context, and recommends the next move before asking you to open another app.
+                </p>
+
+                <div className="relative mt-6 flex flex-wrap gap-3">
+                  <button
+                    onClick={resumeWork}
+                    className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-5 text-[13px] font-semibold text-[#11131b] shadow-[0_0_30px_rgba(255,255,255,0.18)] transition hover:shadow-[0_0_40px_rgba(255,255,255,0.26)]"
+                  >
+                    Resume Work
+                    <ArrowRight size={16} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      void gmail.refresh();
+                      void slack.refresh();
+                      void sync.saveSnapshot({ force: true });
+                    }}
+                    className="inline-flex h-10 items-center gap-2 rounded-full bg-white/10 px-5 text-[13px] font-semibold text-white/72 ring-1 ring-white/10 backdrop-blur-xl transition hover:bg-white/14 hover:text-white"
+                  >
+                    <RefreshCw size={16} />
+                    Refresh Context
+                  </button>
                 </div>
               </div>
-            </GlowCard>
 
-            <GlowCard>
-              <div className="flex items-center justify-between">
+              <div className="relative mt-5 rounded-[24px] border border-white/[0.08] bg-black/24 p-5 shadow-[0_22px_70px_rgba(0,0,0,0.32)] ring-1 ring-white/[0.03] backdrop-blur-2xl md:mt-0">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/48">Next best action</p>
+                <div className="mt-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-[#9ff0bf] ring-1 ring-white/10">
+                  <primaryItem.icon size={20} />
+                </div>
+                <h2 className="mt-4 text-[19px] font-semibold leading-6 text-white">{primaryItem.title}</h2>
+                <p className="mt-3 text-[13px] leading-5 text-white/56">{primaryItem.detail}</p>
+                <div className="mt-5 grid grid-cols-2 gap-2 text-[12px]">
+                  <Metric label="Urgent" value={String(signals.gmailUrgent + signals.slackMentions)} />
+                  <Metric label="Load" value={String(Math.round(workload.overloadScore))} />
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-[28px] border border-white/[0.08] bg-white/[0.07] p-5 shadow-[0_26px_80px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-[13px] text-white/48">Current focus</p>
-                  <p className="mt-1 text-[28px] font-semibold text-white">{timeLabel}</p>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/42">Resume briefing</p>
+                  <h2 className="mt-1 text-[22px] font-semibold text-white">A clean read of what matters now.</h2>
                 </div>
-                <Headphones size={22} className="text-white/48" />
+                <StatusPill tone="neutral">{Math.round(engineConfidence)}% confidence</StatusPill>
               </div>
-              <div className="mt-5 grid grid-cols-3 gap-2">
-                {[
-                  [sessions, "sessions"],
-                  [focusMinutes, "minutes"],
-                  [breaks, "breaks"],
-                ].map(([value, label]) => (
-                  <div key={label} className="rounded-[16px] bg-black/22 p-3 text-center ring-1 ring-white/8">
-                    <p className="text-[18px] font-semibold text-white">{value}</p>
-                    <p className="text-[10px] text-white/42">{label}</p>
-                  </div>
+              <div className="mt-5 divide-y divide-white/[0.06]">
+                {contextItems.map((item) => (
+                  <BriefingRow key={item.label} item={item} />
                 ))}
               </div>
-            </GlowCard>
+            </section>
 
-            <GlowCard>
-              <div className="flex items-start justify-between gap-3">
+            <section id="zenly-next-actions" className="rounded-[28px] border border-white/[0.08] bg-white/[0.07] p-5 shadow-[0_26px_80px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-[13px] text-white/48">Input load</p>
-                  <p className="mt-1 text-[28px] font-semibold text-white">
-                    {inputLoad}<span className="text-[15px] text-white/42">/100</span>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/42">Recommended sequence</p>
+                  <h2 className="mt-1 text-[22px] font-semibold text-white">Do the least switching first.</h2>
+                </div>
+                <StatusPill tone={sync.status === "error" ? "red" : sync.status === "saved" ? "green" : "neutral"}>
+                  {sync.status === "saving" ? "Saving" : sync.status === "saved" ? "Synced" : sync.status === "error" ? "Sync issue" : "Ready"}
+                </StatusPill>
+              </div>
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
+                <div className="divide-y divide-white/[0.06]">
+                  <ActionRow
+                    step="01"
+                    title={signals.gmailUrgent + signals.slackMentions > 0 ? "Answer urgent people-facing loops" : "Stay with the active project"}
+                    detail={
+                      signals.gmailUrgent + signals.slackMentions > 0
+                        ? "Handle mentions and urgent mail before opening broad inboxes."
+                        : "No urgent source is currently stronger than project continuation."
+                    }
+                    icon={UserRoundCheck}
+                  />
+                  <ActionRow
+                    step="02"
+                    title={signals.gmailUnread + signals.slackMessages > 0 ? "Review grouped changes" : "Skip the inbox scan"}
+                    detail={
+                      signals.gmailUnread + signals.slackMessages > 0
+                        ? "Read by importance, not by app. Zenly keeps Gmail and Slack in one context queue."
+                        : "Connected work sources are quiet enough to avoid a context reset."
+                    }
+                    icon={Search}
+                  />
+                  <ActionRow
+                    step="03"
+                    title="Commit the next work state"
+                    detail="Save the decision, handoff, or next task into Memory so tomorrow starts with context."
+                    icon={CheckCircle2}
+                  />
+                </div>
+
+                <div className="rounded-[22px] bg-black/20 p-4 ring-1 ring-white/[0.06]">
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/42">Trust layer</p>
+                  <h3 className="mt-1 text-[16px] font-semibold text-white">Why this is recommended</h3>
+                  <div className="mt-4 space-y-2">
+                    <TrustRow label="Evidence" value={`${signals.gmailUnread} Gmail, ${signals.slackMessages} Slack, ${Math.round(inputStats.activeSeconds / 60)}m activity`} />
+                    <TrustRow label="Confidence" value={`${Math.round(engineConfidence)}%`} />
+                    <TrustRow label="Action policy" value="Recommend first, execute after approval" />
+                    <TrustRow label="Memory policy" value="Ask before learning durable preferences" />
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <aside className="space-y-5">
+            <section className="rounded-[28px] border border-white/[0.08] bg-white/[0.07] p-5 shadow-[0_26px_80px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/42">Live inputs</p>
+                  <h2 className="mt-1 text-[20px] font-semibold text-white">Sources</h2>
+                </div>
+                <Clock3 size={18} className="text-white/42" />
+              </div>
+              <div className="mt-4 space-y-2">
+                <SourceRow name="Gmail" icon={Mail} account={gmail.account} onConnect={gmail.connect} />
+                <SourceRow name="Slack" icon={MessageSquareText} account={slack.account} onConnect={slack.connect} />
+                {sourceReadiness.slice(2).map((source) => (
+                  <StaticSourceRow key={source.name} name={source.name} icon={source.icon} />
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-[28px] border border-white/[0.08] bg-white/[0.07] p-5 shadow-[0_26px_80px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/42">Context Engine</p>
+              <div className="mt-4 space-y-3">
+                {engineMap.map((engine) => (
+                  <EngineRow key={engine.name} {...engine} />
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-[28px] border border-white/[0.08] bg-white/[0.07] p-5 shadow-[0_26px_80px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/42">Memory trail</p>
+                  <h2 className="mt-1 text-[20px] font-semibold text-white">Recent context states</h2>
+                </div>
+                <History size={18} className="text-white/42" />
+              </div>
+              <div className="mt-4 space-y-2">
+                {history.slice(0, 5).length > 0 ? (
+                  history.slice(0, 5).map((row) => <HistoryRow key={row.id} row={row} />)
+                ) : (
+                  <p className="rounded-[18px] bg-black/22 p-3 text-[13px] leading-5 text-white/48 ring-1 ring-white/8">
+                    Zenly will start saving context states after you sign in and activity produces meaningful signal.
                   </p>
-                </div>
-                <button onClick={resetInputStats} className="rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white/68 ring-1 ring-white/10">
-                  Reset
-                </button>
+                )}
               </div>
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-[#9ff0bf] shadow-[0_0_18px_rgba(159,240,191,0.58)]" style={{ width: `${inputLoad}%` }} />
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                <div className="rounded-[16px] bg-black/22 p-3 ring-1 ring-white/8">
-                  <p className="text-[17px] font-semibold text-white">{inputStats.keyPresses}</p>
-                  <p className="text-[10px] text-white/42">keys</p>
-                </div>
-                <div className="rounded-[16px] bg-black/22 p-3 ring-1 ring-white/8">
-                  <p className="text-[17px] font-semibold text-white">{inputStats.mouseClicks}</p>
-                  <p className="text-[10px] text-white/42">clicks</p>
-                </div>
-                <div className="rounded-[16px] bg-black/22 p-3 ring-1 ring-white/8">
-                  <p className="text-[17px] font-semibold text-white">{inputStats.trackpadGestures}</p>
-                  <p className="text-[10px] text-white/42">trackpad</p>
-                </div>
-              </div>
-              <p className="mt-3 text-[11px] leading-4 text-white/38">
-                {inputMinutes} active min in Zenly. Last input: {inputStats.lastInput}. Browser-only estimate.
-              </p>
-            </GlowCard>
-
-            <nav className="flex items-center justify-between gap-2 rounded-full border border-white/10 bg-white/[0.075] p-2 shadow-[0_26px_80px_rgba(0,0,0,0.35)] backdrop-blur-2xl lg:hidden">
-              {tabs.map((tab) => {
-                const Icon = tab.icon;
-                const selected = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      "flex min-h-11 flex-1 items-center justify-center rounded-full px-3 py-2 text-white/48 transition",
-                      selected && "bg-white/14 text-white shadow-[0_0_30px_rgba(255,255,255,0.12)]",
-                    )}
-                    aria-label={tab.label}
-                    aria-pressed={selected}
-                  >
-                    <Icon size={17} />
-                  </button>
-                );
-              })}
-              <a href="/base" aria-label="Base" className="flex min-h-11 flex-1 items-center justify-center rounded-full px-3 py-2 text-white/48">
-                <LayoutGrid size={17} />
-              </a>
-              <a href="/settings" aria-label="Settings" className="flex min-h-11 flex-1 items-center justify-center rounded-full px-3 py-2 text-white/48">
-                <Settings size={17} />
-              </a>
-            </nav>
-
-            <GlowCard className="hidden lg:block">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/10">
-                  <Moon size={18} />
-                </span>
-                <div>
-                  <p className="text-[15px] font-semibold text-white">Tonight</p>
-                  <p className="text-[13px] text-white/48">Rain queued for wind down</p>
-                </div>
-              </div>
-            </GlowCard>
+            </section>
           </aside>
-        </div>
+        </section>
       </div>
     </main>
+  );
+}
+
+function StatusPill({ tone, children }: { tone: "green" | "amber" | "red" | "neutral" | "blue"; children: React.ReactNode }) {
+  const classes = {
+    green: "bg-[#9ff0bf]/14 text-[#d5ffde] ring-[#9ff0bf]/22",
+    amber: "bg-[#ffb66f]/14 text-[#ffe4c7] ring-[#ffb66f]/22",
+    red: "bg-[#ff8f7a]/14 text-[#ffd6cf] ring-[#ff8f7a]/22",
+    blue: "bg-white/10 text-white/58 ring-white/10",
+    neutral: "bg-white/10 text-white/58 ring-white/10",
+  };
+  return <span className={cn("inline-flex h-8 items-center rounded-full px-3 text-[12px] font-medium ring-1 backdrop-blur-xl", classes[tone])}>{children}</span>;
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[16px] bg-black/22 p-3 text-center ring-1 ring-white/8">
+      <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/42">{label}</p>
+      <p className="mt-1 text-[22px] font-semibold leading-none text-white">{value}</p>
+    </div>
+  );
+}
+
+function BriefingRow({ item }: { item: ContextItem }) {
+  const Icon = item.icon;
+
+  return (
+    <article className="grid gap-3 py-4 sm:grid-cols-[42px_minmax(0,1fr)_auto] sm:items-start">
+      <span className="grid h-10 w-10 place-items-center rounded-2xl bg-white/10 text-white/68 ring-1 ring-white/10">
+        <Icon size={17} strokeWidth={2} />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/42">{item.label}</p>
+        <h3 className="mt-1 text-[15px] font-semibold leading-5 text-white">{item.title}</h3>
+        <p className="mt-1 max-w-2xl text-[13px] leading-5 text-white/54">{item.detail}</p>
+      </div>
+      <span className="w-fit rounded-full bg-black/18 px-3 py-1.5 text-[11px] font-medium leading-none text-white/52 ring-1 ring-white/[0.06]">
+        {item.meta}
+      </span>
+    </article>
+  );
+}
+
+function ActionRow({ step, title, detail, icon: Icon }: { step: string; title: string; detail: string; icon: LucideIcon }) {
+  return (
+    <div className="grid gap-3 py-4 sm:grid-cols-[42px_1fr_32px]">
+      <span className="font-mono text-[12px] font-medium text-white/42">{step}</span>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white/10 text-white/68 ring-1 ring-white/10">
+            <Icon size={15} />
+          </span>
+          <h3 className="text-[15px] font-semibold text-white">{title}</h3>
+        </div>
+        <p className="mt-2 text-[13px] leading-5 text-white/52 sm:ml-10">{detail}</p>
+      </div>
+      <ArrowRight size={17} className="hidden self-center text-white/36 sm:block" />
+    </div>
+  );
+}
+
+function TrustRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.055] p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/42">{label}</p>
+      <p className="mt-1 text-[13px] leading-5 text-white/84">{value}</p>
+    </div>
+  );
+}
+
+function SourceRow({
+  name,
+  icon: Icon,
+  account,
+  onConnect,
+}: {
+  name: string;
+  icon: LucideIcon;
+  account: ProviderAccount;
+  onConnect: () => void;
+}) {
+  const connected = account.state === "connected" || account.state === "syncing";
+  return (
+    <div className="relative overflow-hidden rounded-[22px] border border-white/[0.08] bg-black/22 p-3 ring-1 ring-white/[0.03]">
+      <div className="relative flex items-center justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[16px] bg-white/10 text-white/68 ring-1 ring-white/10">
+          <Icon size={16} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold text-white">{name}</p>
+          <p className="truncate text-[12px] font-medium text-white/52">
+            {connected ? account.displayName ?? "Connected" : account.configured ? "Not connected" : "Not configured"}
+          </p>
+        </div>
+      </div>
+      {connected ? (
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#9ff0bf] shadow-[0_0_18px_rgba(159,240,191,0.8)]" />
+      ) : (
+        <button onClick={onConnect} className="inline-flex h-9 shrink-0 items-center rounded-full bg-white px-4 text-[12px] font-semibold text-[#11131b] shadow-[0_0_24px_rgba(255,255,255,0.18)] transition hover:shadow-[0_0_32px_rgba(255,255,255,0.24)]">
+          Connect
+        </button>
+      )}
+      </div>
+    </div>
+  );
+}
+
+function StaticSourceRow({ name, icon: Icon }: { name: string; icon: LucideIcon }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[22px] border border-white/[0.08] bg-black/22 p-3 ring-1 ring-white/[0.03]">
+      <div className="flex items-center gap-3">
+        <span className="grid h-10 w-10 place-items-center rounded-[16px] bg-white/10 text-white/58 ring-1 ring-white/10">
+          <Icon size={16} />
+        </span>
+        <div>
+          <p className="text-[15px] font-semibold text-white">{name}</p>
+          <p className="text-[12px] text-white/48">Waiting for connector</p>
+        </div>
+      </div>
+      <span className="inline-flex h-8 items-center rounded-full bg-white/10 px-3 text-[11px] font-medium text-white/48 ring-1 ring-white/10">Soon</span>
+    </div>
+  );
+}
+
+function EngineRow({ name, status, icon: Icon }: { name: string; status: string; icon: LucideIcon }) {
+  return (
+    <div className="flex gap-3">
+      <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-white/10 text-white/72 ring-1 ring-white/10">
+        <Icon size={15} />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[13px] font-semibold text-white">{name} Engine</p>
+        <p className="text-[12px] leading-5 text-white/48">{status}</p>
+      </div>
+    </div>
+  );
+}
+
+function HistoryRow({ row }: { row: SnapshotRow }) {
+  const date = new Date(row.captured_at);
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[18px] bg-black/22 p-3 ring-1 ring-white/[0.07]">
+      <div>
+        <p className="text-[13px] font-semibold capitalize text-white">{row.state.replace("_", " ")}</p>
+        <p className="text-[12px] text-white/48">{Number.isNaN(date.getTime()) ? "Saved context" : formatTime(date)}</p>
+      </div>
+      <span className="inline-flex h-8 items-center rounded-full bg-white/10 px-3 text-[12px] font-semibold text-white/68 ring-1 ring-white/10">{Math.round(row.overload_score)}</span>
+    </div>
   );
 }
